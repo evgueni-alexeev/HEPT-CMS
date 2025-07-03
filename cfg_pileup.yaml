@@ -1,0 +1,59 @@
+device: cuda                # cuda, cpu
+cudacores: 6                # number of GPUs to use (unused if multiple_gpus is False)
+multiple_gpus: False        # use multiple GPUs
+resume: False               # False or {dir}, to resume from dir = /path/to/csv/version_number checkpoint; overwrites config with hparams.yaml in ckpt folder
+seed: 42                    # random seed
+log_tb: False               # log to tensorboard
+num_threads: 8              # CPU threads for multiprocessing
+
+f_beta: 3.0                 # F-score beta coefficient for pileup (default 3.0)
+num_events: 100             # number of events to use (i.e. data-{N}.pt in processed folder)
+pileup_density: 50          # Specify which pileup folder to use (50, 100, or 200)
+
+model_kwargs:
+  block_size: 100           # size of local/diagonal attention block (default 100)
+  n_hashes: 3               # number of OR hashes (default 3)
+  lsh_dims: 3               # number of AND hashes (1/2/3, corresponding to top 1,2 or 3 LDA coords)
+  num_regions: 100          # number of unique aux hash codes (~1000 for pu200, ~300 for pu100, ~100 for pu50)
+  num_heads: 3              # number of attention heads (default 8)
+  h_dim: 24                 # attention embedding dimension (default 24)
+  n_layers: 3               # number of attention blocks (default 4)
+  num_w_per_dist: 10        # learnable weight dimension for ω in attention kernel (default 10)
+  W_out_hdim_factor: 1      # MLP: h_dim multiplier, for in/out dim of MLP (originally 0.5, i.e. d=12)
+  h_dim_MLP: 256            # MLP: width (default 256)
+  n_layers_MLP: 5           # MLP: depth (default 5)
+  act_MLP: "SiLU"           # MLP: activation (ReLU, SiLU, ...) 
+  dropout: 0.0              # dropout rate (default 0.0)
+
+loss_name: focal            # infonce for tracking, focal for pileup
+loss_kwargs:
+  dist_metric: l2_rbf       # l2_rbf, l2_inverse, cosine
+  tau: 0.05                 # infonce: temperature (default 0.05)
+  sigma: 0.75               # infonce: standard deviation (default 0.75)
+  use_dynamic_alpha: True   # focal: class imbalance will be computed for each event
+  multiplier: 2.0           # focal: extra multiplier for dynamic imbalance, to weight pos class more/less
+  imbalance: 15             # focal: class imbalance, w_pos = i x w_neg (unused if use_dynamic_alpha is True)
+  gamma: 2.0                # focal: loss prioritizes harder to classify cases if >1; 2.0 is recommended
+
+optimizer_name: adamw       # adam, adamw, rmsprop, adamax, lbfgs, nadam, radam
+num_epochs: 10               # number of epochs to train
+batch_size: 1               # number of events per batch (default 1)
+optimizer_kwargs:
+  lr: 6.0e-3                # Initial/max learning rate (default 1.0e-3)
+  weight_decay: 0.02        # AdamW weight decay (default 0.02)
+
+lr_scheduler_name: cosine           # cosine, step, impatient
+# lr_schedule_metric: val_loss      # impatient metric (default val_loss)
+lr_scheduler_kwargs:
+  warmup_epochs: 1                  # cosine: number of epochs to warmup
+  min_lr: 0.0                       # cosine: final learning rate
+  # gamma: 0.5                      # step: cut by factor
+  # step_size: 50                   # step: number of epochs to wait before reducing lr
+  # factor: 0.5                     # impatient: cut by factor
+  # patience: 10                    # impatient: number of epochs of no improvement before reducing lr
+  # mode: "min"                     # impatient: min (val_loss) or max (val_fb)
+
+data_dir: ./data/               # path to data
+main_metric: val_fb             # main metric to monitor (val_fb, val_AP@0.9, val_loss)
+mode: max                       # max (e.g. F-beta) or min (e.g. loss)
+task: pileup                    # pileup or tracking
