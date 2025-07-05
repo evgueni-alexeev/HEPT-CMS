@@ -6,6 +6,7 @@ from tqdm import tqdm
 import torch
 from torch_geometric.data import Data
 import os
+from time import time
 
 ROOT_DIR = "ntuple.root"
 OUTPUT_DIR = "raw/test/"
@@ -13,8 +14,8 @@ START_EVENT = 0
 END_EVENT = 10
 CPU_CORES_FOR_MP = 8
 
-def process_event(i, alldata, track_label):
-    event_data = alldata[i]
+def process_event(i, tree, track_label, cols, start_idx):
+    event_data = tree.arrays(cols, entry_start = start_idx + i, entry_stop = start_idx + i + 1)
     
     trks = torch.tensor([xx[0] for xx in event_data[track_label]])  # first if multiple tracks in LS (uncommon)
     
@@ -72,9 +73,11 @@ if __name__ == "__main__":
     
     ALL_COLS = LS_F + MD0_F + MD1_F + INDICES + MD_L_IDX + LABELS + CUTS
     
-    all_data = tree.arrays(ALL_COLS, entry_start = args.start_event, entry_stop = args.end_event)
+    curr_time = time()
 
     Parallel(n_jobs=args.cpu_cores)(
-        delayed(process_event)(i, all_data, track_label) for i in tqdm(range(num_events))
+        delayed(process_event)(i, tree, track_label, ALL_COLS, args.start_event) for i in tqdm(range(num_events))
     )
     print(f"Saved graph_{args.start_event} to graph_{args.end_event - 1} from {args.root_dir} to {args.out_dir}")
+
+    print(f"Time taken: {time() - curr_time} seconds")
