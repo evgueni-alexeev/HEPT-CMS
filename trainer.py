@@ -125,7 +125,21 @@ def run_lightning(config):
 
     _print_summary(trainer.callback_metrics.items(),config)
 
-    # trainer.test(model, data_module, ckpt_path = resume_ckpt, verbose=True)
+    # ----------------------------------------------------
+
+    TEST_RUN = True
+    if TEST_RUN:
+        # Run testing in a separate Trainer instance with logging disabled
+        test_trainer = L.Trainer(
+            accelerator=config["device"],
+            devices=config["cudacores"] if config["multiple_gpus"] else 1,
+            strategy=strat if config["multiple_gpus"] else "auto",
+            logger=False,
+            enable_progress_bar=True,
+            precision="32",
+            num_sanity_val_steps=0,
+        )
+        test_trainer.test(model, data_module, ckpt_path=resume_ckpt, verbose=True)
 
 @rank_zero_only
 def _print_summary(its, conf):

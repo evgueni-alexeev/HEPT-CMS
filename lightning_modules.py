@@ -540,21 +540,12 @@ class PlotMetrics(Callback):
             r_at95_p = BinaryRecallAtFixedPrecision(min_precision = 0.95)
             p_at_r, _ = p_at99_r(torch.tensor(y_score),torch.tensor(y_true))
             r_at_p, _ = r_at95_p(torch.tensor(y_score),torch.tensor(y_true))
-            
-            try:
-                if trainer.logger is not None:
-                    trainer.logger.log_metrics({
-                        "p_at99_r": float(p_at_r),
-                        "r_at95_p": float(r_at_p)
-                    }, step=trainer.current_epoch)
-            except Exception as err:
-                print(f"PlotMetrics: warning - could not log p@r metrics via logger: {err}")
-            
+                     
             # Append final r@p, p@r to metrics.csv (too expensive to compute every epoch)
             df = pd.read_csv(f"{trainer.logger.log_dir}/metrics.csv")
             df["p_at99_r"] = [0.] * (len(df) - 1) + [float(p_at_r)]
             df["r_at95_p"] = [0.] * (len(df) - 1) + [float(r_at_p)]
-            df.to_csv(f"{trainer.logger.log_dir}/metrics.csv",index=False)
+            df.to_csv(f"{trainer.logger.log_dir}/metrics.csv",index=False)            
 
             print(f"  Val precision @ 99 recall: {p_at_r:.3f}")
             print(f"  Val recall @ 95 precision: {r_at_p:.3f}")
@@ -570,6 +561,7 @@ class PlotMetrics(Callback):
 
         print(f"Plots saved to {out_dir}")
 
+    @rank_zero_only
     def on_test_epoch_end(self, trainer, pl_module):
         if not self.history:
             return
@@ -577,7 +569,7 @@ class PlotMetrics(Callback):
         task = pl_module.hparams.task
         if task != "pileup":
             return
-        
+
         if self.test_trues and self.test_preds:
             y_true  = np.concatenate(self.test_trues)
             y_score = np.concatenate(self.test_preds)
@@ -587,9 +579,6 @@ class PlotMetrics(Callback):
             p_val, _ = p_at99_r(torch.tensor(y_score), torch.tensor(y_true))
             r_val, _ = r_at95_p(torch.tensor(y_score), torch.tensor(y_true))
 
-            if trainer.logger is not None:
-                trainer.logger.log_metrics({"test_p_at99_r": float(p_val), "test_r_at95_p": float(r_val)}, step=trainer.current_epoch)
-            
             print(f"  Test precision @ 99 recall: {p_val:.3f}")
             print(f"  Test recall @ 95 precision: {r_val:.3f}")
 
