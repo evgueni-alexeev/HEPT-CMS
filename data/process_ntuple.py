@@ -13,10 +13,10 @@ START_EVENT = 0
 END_EVENT = 10
 CPU_CORES_FOR_MP = 8
 
-def process_event(i,alldata):
+def process_event(i, alldata, track_label):
     event_data = alldata[i]
     
-    trks = torch.tensor([xx[0] for xx in event_data["LS_SimTrkIdx"]])  # first if multiple tracks in LS (uncommon)
+    trks = torch.tensor([xx[0] for xx in event_data[track_label]])  # first if multiple tracks in LS (uncommon)
     
     md_idxA, md_idxE = ak.to_list(ak.to_dataframe(event_data[INDICES]).values.T)
     md_anchor0 = torch.tensor(ak.to_dataframe(event_data[MD0_F]).values[md_idxA])
@@ -55,12 +55,19 @@ if __name__ == "__main__":
     file = uproot.open(args.root_dir)
     tree = file["tree"]
 
+    if "LS_SimTrkIdx" in tree.keys():
+        track_label = "LS_SimTrkIdx"
+    elif "LS_TCidx" in tree.keys():
+        track_label = "LS_TCidx"
+    else:
+        raise ValueError("Neither of the truth label branches ('LS_SimTrkIdx' or 'LS_TCidx') found in the ROOT file.")
+
     LS_F = ["LS_phi", "LS_eta", "LS_pt"]
     MD0_F = ["MD_0_r", "MD_0_x", "MD_0_y", "MD_0_z", "MD_dphichange"]
     MD1_F = ["MD_1_r", "MD_1_x", "MD_1_y", "MD_1_z", "MD_dphichange"]
     INDICES = ["LS_MD_idx0","LS_MD_idx1"]
     MD_L_IDX = ["MD_layer"]
-    LABELS = ["tc_lsIdx","LS_SimTrkIdx"]   # change "LS_SimTrkIdx" --> "LS_TCidx" in earlier ntuple
+    LABELS = ["tc_lsIdx", track_label]   # track_label = LS_SimTrkIdx or LS_TCidx; tc_lsIdx is LST truth label
     CUTS = ["LS_isFake"]
     
     ALL_COLS = LS_F + MD0_F + MD1_F + INDICES + MD_L_IDX + LABELS + CUTS
@@ -68,6 +75,6 @@ if __name__ == "__main__":
     all_data = tree.arrays(ALL_COLS, entry_start = args.start_event, entry_stop = args.end_event)
 
     Parallel(n_jobs=args.cpu_cores)(
-        delayed(process_event)(i,all_data) for i in tqdm(range(num_events))
+        delayed(process_event)(i, all_data, track_label) for i in tqdm(range(num_events))
     )
     print(f"Saved graph_{args.start_event} to graph_{args.end_event - 1} from {args.root_dir} to {args.out_dir}")

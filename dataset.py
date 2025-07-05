@@ -16,11 +16,10 @@ from torch_geometric.utils import to_undirected, remove_self_loops
 from joblib import Parallel, delayed
 from utils import calculate_cluster_connectivity, save_cluster_connectivity
 
-# assumes phi --> cos/sin transform is used (default)
+# Assumes phi --> cos/sin transform is used (default)
 FEATURE_NAMES = ("sinphi","cosphi","eta","pt","r","x","y","z","dphi","dr_0","dx_0","dy_0","dz_0","dphi_0","dr_1","dx_1","dy_1","dz_1","dr_LS","dx_LS","dy_LS","dz_LS","layer_0","layer_1")
 ROOT_PATH = Path(__file__).parent / "data"
 CPU_CORES_FOR_MP = 8
-MASK_USES_ONLY_TRUE_TRACKS = True
 
 class TrackingPileupTransform(BaseTransform):
     # placeholder transform function
@@ -43,7 +42,7 @@ def get_new_idx_split(dataset):
 
 
 class TrackingPileup(InMemoryDataset):
-    def __init__(self, task="tracking", truncate=None, num_events=None, graph_radius=1.0, graph_k_neighbors=None, phi_transform=True, LDA_path=None, mask=False, conn=False, pt_log=True, pileup_density="200", **kwargs):
+    def __init__(self, task="tracking", truncate=None, num_events=None, graph_radius=1.0, graph_k_neighbors=None, phi_transform=True, LDA_path=None, use_LDA=True, mask=True, conn=False, pt_log=True, pileup_density="200", **kwargs):
         self.task = task
         self.pileup_density = str(pileup_density)
         self.root_path = ROOT_PATH
@@ -54,17 +53,14 @@ class TrackingPileup(InMemoryDataset):
         self.graph_radius = graph_radius
         self.graph_k_neighbors = graph_k_neighbors
         self.phi_transform = phi_transform
+        self.use_lda = use_LDA
         self.mask = mask
         self.conn = conn
         self.pt_log = pt_log
-        
-        if LDA_path is not None:
-            self.use_lda = True
-            self.LDA_path = Path(LDA_path)
-        else:
-            self.use_lda = False
+        self.LDA_path = LDA_path if LDA_path is not None else Path(__file__).parent / f"lda/LDA_pu{self.pileup_density}.pt"
 
         if self.use_lda:
+            if not self.num_events: print(f"Using LDA transformed features from {self.LDA_path}")
             self.LDA_data = torch.load(self.LDA_path, weights_only=False)
             self.LDA_features = self.LDA_data['feature_names']
             self.LDA_scalings = self.LDA_data['scalings_matrix']
@@ -146,12 +142,16 @@ class TrackingPileup(InMemoryDataset):
         data.x = torch.cat([sin_phi.unsqueeze(1), cos_phi.unsqueeze(1), others], dim=1)
         return data
 
+    # Main loop for processing a single event/point cloud
     def process_point_cloud(self, point_cloud):
-        # Main loop for processing a single event/point cloud
         evtid, sector = get_event_id_sector_from_str(point_cloud)
         data = torch.load(Path(self.raw_dir) / point_cloud,weights_only=False)
         data = preprocess_data(data, evtid, phi_transform=self.phi_transform, topk_pt=0, pt_log=self.pt_log)
-        if self.mask:
+        
+        if self.task == 'tracking' and self.mask:
+            MASK_USES_ONLY_TRUE_TRACKS = True       # False will mix in some fake LS with the true, based on ratio (default=True, i.e. only use LS with sim-track label)
+            MASKED_CLASS_BALANCE_RATIO = 2          # Class balance/mixing ratio if above is False (default=2 --> 2 fake LS for every true LS)
+            
             if MASK_USES_ONLY_TRUE_TRACKS:
                 data.x = data.x[data.y==1]
                 data.particle_id = data.particle_id[data.y==1]
@@ -163,7 +163,7 @@ class TrackingPileup(InMemoryDataset):
                 pos_idx = pos_mask.nonzero(as_tuple = False).view(-1)
                 neg_idx = neg_mask.nonzero(as_tuple = False).view(-1)
                 n_pos = pos_idx.numel()
-                perm = torch.randperm(neg_idx.numel())[:int(2*n_pos)]  # 2/1 class balance -- all tracks + twice the amount pileup points
+                perm = torch.randperm(neg_idx.numel())[:int(MASKED_CLASS_BALANCE_RATIO*n_pos)]
                 neg_sample = neg_idx[perm]
                 keep = torch.cat([pos_idx, neg_sample], dim=0)
                 keep = keep[torch.randperm(keep.numel())]
@@ -265,8 +265,8 @@ def create_point_pairs_from_clusters(cluster_ids, event_id, nearby_point_pairs, 
     return point_pairs
 
 def gen_point_pairs(data, radius, k_max_neighbors=None, conn=False):
-    if k_max_neighbors is None:     # default to 1/2*sqrt(N)
-        k_max_neighbors = round(0.5*math.sqrt(data.particle_id[data.y==1].shape[0]))
+    if k_max_neighbors is None:     # default to 1/5*sqrt(N)
+        k_max_neighbors = round(0.2*math.sqrt(data.particle_id[data.y==1].shape[0]))
     nearby_point_pairs = to_undirected(radius_graph(data.pos, r=radius, loop=False, max_num_neighbors=k_max_neighbors))
     point_pairs = create_point_pairs_from_clusters(data.particle_id, data.evtid, nearby_point_pairs, compute_connectivity=conn)
     point_pairs = point_pairs.long()
@@ -327,21 +327,24 @@ def preprocess_data(data, evtid, phi_transform=True, topk_pt=0, pt_log = False):
 
 if __name__ == "__main__":
     
-    SPECIFIED_LDA_PATH = Path(__file__).parent / "lda/LDA.pt"   #None
-
     parser = argparse.ArgumentParser(description="Build point clouds from raw data.")
-    parser.add_argument("-t", "--truncate", type=int, default=None, help="For generating -- process first t graph_i.pt files in raw dir to make data-t.pt file. By default will process all files in raw.")
-    parser.add_argument("-n", "--num_events", type=int, default=None, help="For loading -- specify the data-n.pt file to use")
     parser.add_argument("-d", "--task", type=str, default="pileup", choices=["tracking", "pileup"], help="Specify the dataset task: tracking or pileup")
-    parser.add_argument("-r", "--graph_radius", type=float, default=1.0, help="Radius to build radius_graphs in tracking task.")
-    parser.add_argument("-k", "--graph_k_neighbors", type=int, default=None, help="Max number of neighbors for radius_graph in tracking task (if not specified, uses 1/2*sqrt(N)).")
-    parser.add_argument("-p", "--phi_transform", action="store_false", help="arg to NOT transform phi to sin and cos (default is true)")
-    parser.add_argument("-l", "--LDA_path", type=str, default=SPECIFIED_LDA_PATH, help="Path to LDA data")
-    parser.add_argument("-m","--mask", action="store_true", help="Mask out fake line segments for tracking task")
-    parser.add_argument("-c","--connectivity", action="store_true", help="Calculate and save connectivity metrics")
-    parser.add_argument("-pt","--pt_log", action="store_false", help="arg to NOT use log pt (default), instead of pt")
     parser.add_argument("-pu", "--pileup_density", type=str, default="200", help="Pileup density (50, 100 or 200)")
+    parser.add_argument("-t", "--truncate", type=int, default=None, help="For generating -- process first t graph_i.pt files in raw dir to make data-t.pt file. By default will process all files in raw.")
+
+    parser.add_argument("-r", "--graph_radius", type=float, default=0.2, help="Radius hyperparameterto build radius_graphs in tracking task.")
+    parser.add_argument("-k", "--graph_k_neighbors", type=int, default=None, help="Max number of neighbors for radius_graph in tracking task (if not specified, uses 1/5*sqrt(N)).")
+    parser.add_argument("-c","--connectivity", action="store_true", help="Calculate and save connectivity metrics (--> data/cluster_analysis/)")
+
+    parser.add_argument("-l", "--LDA_path", type=str, default=None, help="Ignore usually unless need to specify custom path to LDA data -- usually done automatically based on pu")
+    parser.add_argument("-n", "--num_events", type=int, default=None, help="Ignore -- specified in cfg to indicate which data-n.pt file to use")
+    parser.add_argument("-nolda", "--no_LDA", action="store_true", help="Use raw x features instead of LDA transformed features (default is to use LDA)")
+    parser.add_argument("-nomask","--no_mask", action="store_true", help="Include fake line segments in edge construction for tracking (default is to use only true tracks)")
+    parser.add_argument("-rawphi", "--phi_transform", action="store_false", help="Use raw phi and do NOT transform to sin and cos (default is phi --> sin/cos to fix wrap-around issue)")
+    parser.add_argument("-rawpt","--pt_log", action="store_false", help="Use raw pt values instead of log pt transformation (default is log (pt - min(pt) + 1))")
+
     args = parser.parse_args()
+
     if args.truncate is not None:
         print(args.truncate)
         prefix_for_connectivity = args.truncate
@@ -360,10 +363,11 @@ if __name__ == "__main__":
         except:
             prefix_for_connectivity = "all"
         timestamp = datetime.now().strftime("%H%M%S")
-        metrics_dir = os.getcwd() + f"/data/cluster_analysis/cluster_connectivity_{prefix_for_connectivity}_k={args.graph_k_neighbors}_r={args.graph_radius}_{timestamp}"
+        metrics_dir = os.getcwd() + f"/data/cluster_analysis/evts={prefix_for_connectivity}_pu{args.pileup_density}_k={args.graph_k_neighbors if args.graph_k_neighbors else 'auto'}_r={args.graph_radius}_{timestamp}"
         metrics_dir = Path(metrics_dir)
         metrics_dir.mkdir(parents = True, exist_ok=True)
         print(f"Connectivity metrics will be saved to {metrics_dir}")
+
     dataset = TrackingPileup(task=args.task, truncate=args.truncate, num_events = args.num_events, pileup_density=args.pileup_density,
                         graph_radius=args.graph_radius, graph_k_neighbors=args.graph_k_neighbors, phi_transform=args.phi_transform,
-                        LDA_path=args.LDA_path, mask=args.mask, conn=args.connectivity, pt_log=args.pt_log)
+                        LDA_path=args.LDA_path, use_LDA=not args.no_LDA, mask=not args.no_mask, conn=args.connectivity, pt_log=args.pt_log)

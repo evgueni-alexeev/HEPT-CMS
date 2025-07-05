@@ -57,7 +57,7 @@ def run_lda(start_event_idx: int, end_event_idx: int, lda_comp: int = 7, log_pt:
         'explained_variance_ratio': torch.from_numpy(explained_variance_ratio).float()
     }
 
-    output_path = Path(f"LDA{lda_comp}_pu{pileup_density}_n{num_events}{'' if log_pt else 'raw_pt_vals'}.pt")
+    output_path = Path(f"LDA_pu{pileup_density}{'' if log_pt else '_raw_pt'}.pt")
 
     torch.save(model_data, output_path)
     print(f"LDA model saved successfully to: {output_path}")

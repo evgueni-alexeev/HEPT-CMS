@@ -7,14 +7,14 @@ log_tb: False               # log to tensorboard
 num_threads: 8              # CPU threads for multiprocessing
 
 f_beta: 3.0                 # F-score beta coefficient for pileup (default 3.0)
-num_events: 100             # number of events to use (i.e. data-{N}.pt in processed folder)
-pileup_density: 50          # Specify which pileup folder to use (50, 100, or 200)
+num_events: 10             # number of events to use (i.e. data-{N}.pt in processed folder)
+pileup_density: 100         # Specify which pileup folder to use (50, 100, or 200)
 
 model_kwargs:
   block_size: 100           # size of local/diagonal attention block (default 100)
   n_hashes: 3               # number of OR hashes (default 3)
   lsh_dims: 3               # number of AND hashes (1/2/3, corresponding to top 1,2 or 3 LDA coords)
-  num_regions: 100          # number of unique aux hash codes (~1000 for pu200, ~300 for pu100, ~100 for pu50)
+  num_regions: 300          # number of unique aux hash codes (~1000 for pu200, ~300 for pu100, ~100 for pu50)
   num_heads: 3              # number of attention heads (default 8)
   h_dim: 24                 # attention embedding dimension (default 24)
   n_layers: 3               # number of attention blocks (default 4)
@@ -22,7 +22,7 @@ model_kwargs:
   W_out_hdim_factor: 1      # MLP: h_dim multiplier, for in/out dim of MLP (originally 0.5, i.e. d=12)
   h_dim_MLP: 256            # MLP: width (default 256)
   n_layers_MLP: 5           # MLP: depth (default 5)
-  act_MLP: "SiLU"           # MLP: activation (ReLU, SiLU, ...) 
+  act_MLP: "SiLU"           # MLP: activation (ReLU, SiLU, ...), check weight initialization in model.py
   dropout: 0.0              # dropout rate (default 0.0)
 
 loss_name: focal            # infonce for tracking, focal for pileup
@@ -36,7 +36,7 @@ loss_kwargs:
   gamma: 2.0                # focal: loss prioritizes harder to classify cases if >1; 2.0 is recommended
 
 optimizer_name: adamw       # adam, adamw, rmsprop, adamax, lbfgs, nadam, radam
-num_epochs: 10               # number of epochs to train
+num_epochs: 10              # number of epochs to train
 batch_size: 1               # number of events per batch (default 1)
 optimizer_kwargs:
   lr: 6.0e-3                # Initial/max learning rate (default 1.0e-3)
@@ -45,7 +45,7 @@ optimizer_kwargs:
 lr_scheduler_name: cosine           # cosine, step, impatient
 # lr_schedule_metric: val_loss      # impatient metric (default val_loss)
 lr_scheduler_kwargs:
-  warmup_epochs: 1                  # cosine: number of epochs to warmup
+  warmup_epochs: 2                  # cosine: number of epochs to warmup
   min_lr: 0.0                       # cosine: final learning rate
   # gamma: 0.5                      # step: cut by factor
   # step_size: 50                   # step: number of epochs to wait before reducing lr
