@@ -6,7 +6,6 @@ from tqdm import tqdm
 import torch
 from torch_geometric.data import Data
 import os
-from time import time
 
 ROOT_DIR = "ntuple.root"
 OUTPUT_DIR = "raw/test/"
@@ -73,11 +72,7 @@ if __name__ == "__main__":
     
     ALL_COLS = LS_F + MD0_F + MD1_F + INDICES + MD_L_IDX + LABELS + CUTS
     
-    curr_time = time()
-
     Parallel(n_jobs=args.cpu_cores)(
         delayed(process_event)(i, tree, track_label, ALL_COLS, args.start_event) for i in tqdm(range(num_events))
     )
     print(f"Saved graph_{args.start_event} to graph_{args.end_event - 1} from {args.root_dir} to {args.out_dir}")
-
-    print(f"Time taken: {time() - curr_time} seconds")
