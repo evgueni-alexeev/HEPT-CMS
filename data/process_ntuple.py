@@ -14,7 +14,7 @@ END_EVENT = 10
 CPU_CORES_FOR_MP = 8
 
 def process_event(i, tree, track_label, cols, start_idx):
-    event_data = tree.arrays(cols, entry_start = start_idx + i, entry_stop = start_idx + i + 1)
+    event_data = tree.arrays(cols, entry_start = start_idx + i, entry_stop = start_idx + i + 1)[0]
     
     trks = torch.tensor([xx[0] for xx in event_data[track_label]])  # first if multiple tracks in LS (uncommon)
     
