@@ -33,9 +33,13 @@ For tracking, InfoNCE (https://arxiv.org/pdf/1807.03748.pdf) is used on the LS-L
 
 ### Evaluation
 
-Logs from the training run will be saved in `logs/<task>/csv/version_XX/`, with optional tensorboard output in `tb` folder. The model also saves the best and last checkpoints during training. Currently, the repo just includes basic eval, i.e. plots and metrics, but more eval tools will be added once I clean them up/port them.
+Logs (metrics, plots) from the training run will be saved in `logs/<task>/csv/version_XX/`, with optional tensorboard output in `tb` folder. The model also saves the best and last checkpoints during training.
 
 - Pileup outputs include F-score ($F_1$ and $F_\beta$, usually with $\beta = 3$), the Precision-Recall Curve and AUPRC
 - Tracking outputs the (mean) Average Precision @ k: AP@k = $\frac{1}{N}\sum_{i=1}^{N}$ Prec @ $k_i$ i.e. for each LS, find the sim track index and check how many of its k = 1, 2, ..., L-1 nearest neighbors (L = track length) in the latent space belong to the same sim track, and average across k and across all LS. Note this is ideologically similar to efficiency, but goes point by point rather than track by track. AP@k is calculated for 3 thresholds: $p_t \geq \{0, 0.5, 0,9\}$
 
 There is some post-processing done after the training loop to generate the plots and fix the output files `metrics.csv`. For early stopping during training, if those outputs are needed/important, create a blank "STOP" file in the root dir (e.g. `touch STOP' in bash) and the program will exit the training loop gracefully and still generate plots/post-processing.
+
+`eval/filter_model.py` can be used to apply a trained pileup model on a dataset to produce filtered versions at various recall thresholds, those will be saved in `eval/pileup/<saved_model>/filtered_data`. The filtered(or unfiltered) datasets can also be analyzed using a trained tracking model via `eval/tracking_eval.py`. This gives a detailed breakdown of efficiency and analysis by track length, $p_t$, etc when applied on a partially cleaned dataset. The same analysis can be run on just the sim-matched line segments in the dataset (which masks out `LS_isFake` points).
+
+There are currently 2 pre-trained models saved in `eval`, both trained on 2000 events from the pu200 ntuple, on a single A40 over ~200 epochs. The pileup model achieved a 40.9% precision at 99% recall, and 96.5% AUPRC, and the tracking model achieved a mean AP score of 99.1%, trained/evaluated just the sim-matched LS.
