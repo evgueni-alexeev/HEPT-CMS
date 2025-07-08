@@ -13,7 +13,7 @@ python dataset.py -d <task> -pu <pileup density> ...
 ```
 with `<task> = pileup` or `tracking`, and `<pileup density> = {50,100,200}`. Use `-t <N>` command to only use first N events in the correspoding raw folder (will generate dataset with all events in raw by default).
 
-Tracking dataset construction is the same as pileup, with additional LS-LS edges built for contrastive learning (used during training only). Edges are built using `torch_geometric.nn.radius_graph` in LDA-transformed 3D coordinate space which cluster the line segments closer together if they are from the same track. Using LDA coords instead of e.g. $\eta$ and $\phi$ massively reduces the radius and k hyperparameters required to saturate each sim track cluster.
+Tracking dataset construction is the same as pileup, with additional LS-LS edges built for contrastive learning (used during training only). Edges are built using `torch_geometric.nn.radius_graph` in LDA-transformed 3D coordinate space which attempt to cluster line segments from the same track closer together, and away from other tracks. Using LDA coords instead of e.g. $\eta$ and $\phi$ massively reduces the radius and k hyperparameters required to saturate each sim track cluster.
 
 ### Training
 
@@ -42,4 +42,4 @@ There is some post-processing done after the training loop to generate the plots
 
 `eval/filter_model.py` can be used to apply a trained pileup model on a dataset to produce filtered versions at various recall thresholds, those will be saved in `eval/pileup/<saved_model>/filtered_data`. The filtered(or unfiltered) datasets can also be analyzed using a trained tracking model via `eval/tracking_eval.py`. This gives a detailed breakdown of efficiency and analysis by track length, $p_t$, etc when applied on a partially cleaned dataset. The same analysis can be run on just the sim-matched line segments in the dataset (which masks out `LS_isFake` points).
 
-There are currently 2 pre-trained models saved in `eval`, both trained on 2000 events from the pu200 ntuple, on a single A40 over ~200 epochs. The pileup model achieved a 40.9% precision at 99% recall, and 96.5% AUPRC, and the tracking model achieved a mean AP score of 99.1%, trained/evaluated just the sim-matched LS.
+There are currently 2 pre-trained models saved in `eval`, both trained on 2000 events from the pu200 ntuple, on a single A40 over ~200 epochs. The pileup model achieved a 40.9% precision at 99% recall, and 96.5% AUPRC, and the tracking model achieved a mean AP score of 99.1%, trained/evaluated on just the sim-matched LS.
