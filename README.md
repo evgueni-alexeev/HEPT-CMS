@@ -49,3 +49,7 @@ There is some post-processing done after the training loop to generate the plots
 `eval/filter_model.py` can be used to apply a trained pileup model on a dataset to produce filtered versions at various recall thresholds, those will be saved in `eval/pileup/<saved_model>/filtered_data`. The filtered(or unfiltered) datasets can also be analyzed using a trained tracking model via `eval/tracking_eval.py`. This gives a detailed breakdown of efficiency and analysis by track length, $p_t$, etc when applied on a partially cleaned dataset. The same analysis can be run on just the sim-matched line segments in the dataset (which masks out `LS_isFake` points).
 
 There are currently 2 pre-trained models saved in `eval`, both trained on 2000 events from the pu200 ntuple, on a single A40 over ~200 epochs. The pileup model achieved a **40.9% precision** at 99% recall, and **96.5% AUPRC**. The tracking model built using the 99% recall threshold, with $r=0.15$ and $k \sim 30$ achieved a **94.1% mean AP** score and an estimated **94% LHC efficiency** @ $p_t \geq 0.9$ GeV. The efficiency was calculated using a separate sample of 10 events (not in the training/validation set), for clusters with 5 or more line segments.
+
+### Architecture
+
+![Pipeline](pipeline.jpg)
