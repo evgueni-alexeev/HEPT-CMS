@@ -12,7 +12,7 @@ class InfoNCELoss(nn.Module):
 
     def forward(self, x, point_pairs, cluster_ids, recons, pts, tracklen=None, **kwargs):
         all_pos_pair_mask = cluster_ids[point_pairs[0]] == cluster_ids[point_pairs[1]]
-        non_zero_pid_point_pairs = (cluster_ids[point_pairs[0]] != -1) & (cluster_ids[point_pairs[1]] != -1)
+        non_zero_pid_point_pairs = (cluster_ids[point_pairs[0]] >= 0) & (cluster_ids[point_pairs[1]] >= 0)
         all_pos_pair_mask = all_pos_pair_mask & non_zero_pid_point_pairs
         all_neg_pair_mask = ~all_pos_pair_mask
 

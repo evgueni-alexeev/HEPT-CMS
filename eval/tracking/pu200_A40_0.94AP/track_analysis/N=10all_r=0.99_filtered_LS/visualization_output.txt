@@ -1,0 +1,54 @@
+Loaded 14837 tracks from 10 events
+Track length range: 2 - 43
+Average pt range: 0.46 - 557.30
+  - Creating performance overview...
+  - Analyzing performance by track length...
+  - Analyzing performance by average pT...
+  - Identifying problem tracks...
+
+Problem Track Analysis:
+==================================================
+Total tracks: 14837
+Problem tracks: 555 (3.7%)
+Low precision (<0.5): 343 (2.3%)
+Low recall (<0.5): 343 (2.3%)
+Low completeness (<0.5): 542 (3.7%)
+Problem tracks saved to: D:\ML\tracking_eval\eval\tracking\pu200_A40_0.94AP\track_analysis\N=10all_r=0.99_filtered_LS\problem_tracks.csv
+
+Performance Statistics by Track Length:
+============================================================
+           precision              recall              completeness              purity             
+                mean    std count   mean    std count         mean    std count   mean    std count
+length_bin                                                                                         
+[2, 3)         0.889  0.282  1887  0.889  0.282  1887        0.889  0.282  1887  0.889  0.282  1887
+[3, 4)         0.874  0.224  1222  0.874  0.224  1222        0.786  0.360  1222  0.874  0.224  1222
+[4, 5)         0.914  0.169  1309  0.914  0.169  1309        0.945  0.189  1309  0.914  0.169  1309
+[5, 7)         0.950  0.112  4057  0.950  0.112  4057        0.971  0.128  4057  0.950  0.112  4057
+[7, 10)        0.959  0.091  4133  0.959  0.091  4133        0.988  0.075  4133  0.959  0.091  4133
+[10, 15)       0.962  0.079  1903  0.962  0.079  1903        0.994  0.051  1903  0.962  0.079  1903
+[15, 25)       0.964  0.068   316  0.964  0.068   316        0.998  0.021   316  0.964  0.068   316
+[25, 44)       0.981  0.025    10  0.981  0.025    10        1.000  0.000    10  0.981  0.025    10
+
+Summary Statistics (including noise metrics):
+====================================================================================================
+       precision     recall  completeness     purity  track_length  avg_pt_in_track   total_tp   total_fp   total_fn  noise_contamination_rate  track_cluster_purity  avg_noise_in_knn  total_noise_in_knn  total_other_tracks_in_knn
+count  14837.000  14837.000     14837.000  14837.000     14837.000        14837.000  14837.000  14837.000  14837.000                 14837.000             14837.000         14837.000           14837.000                  14837.000
+mean       0.937      0.937         0.952      0.937         6.335            1.714     42.975      1.937      1.937                     0.058                 0.985             0.240               1.807                      0.130
+std        0.156      0.156         0.184      0.156         3.333            5.772     55.786      5.772      5.772                     0.146                 0.105             0.547               5.491                      1.186
+min        0.000      0.000         0.000      0.000         2.000            0.456      0.000      0.000      0.000                     0.000                 0.000             0.000               0.000                      0.000
+25%        0.967      0.967         1.000      0.967         4.000            0.943     12.000      0.000      0.000                     0.000                 1.000             0.000               0.000                      0.000
+50%        1.000      1.000         1.000      1.000         6.000            1.194     30.000      0.000      0.000                     0.000                 1.000             0.000               0.000                      0.000
+75%        1.000      1.000         1.000      1.000         8.000            1.662     56.000      1.000      1.000                     0.024                 1.000             0.167               1.000                      0.000
+max        1.000      1.000         1.000      1.000        43.000          557.297   1667.000    139.000    139.000                     1.000                 1.000             6.714             139.000                     51.000
+
+NOISE CONTAMINATION ANALYSIS:
+==================================================
+Tracks with low noise contamination (≤0.2): 13450 (90.7%)
+Tracks with medium noise contamination (0.2-0.5): 1118 (7.5%)
+Tracks with high noise contamination (>0.5): 269 (1.8%)
+Average noise points per track's kNN: 0.24
+Tracks with high cluster purity (>0.8): 14553 (98.1%)
+
+Noise Analysis:
+  - Creating noise contamination analysis...
+  - Analyzing noise performance by track length...

@@ -1,0 +1,79 @@
+Dataset: D:\ML\tracking_eval\eval\pileup\pu200_0.409p\filtered_data\filtered_r990_data-10.pt
+Total dataset size: 10
+Using pt thresholds: [0]
+Using distance metric: ['l2']
+Split: all
+Use only true tracks: False
+================================================================================
+
+
+Track by track analysis (pt_threshold = 0)
+================================================================================
+Total tracks analyzed: 14837
+Average track completeness: 0.952
+Average track purity: 0.937
+Average precision: 0.937
+Average recall: 0.937
+
+NOISE CONTAMINATION ANALYSIS:
+Average noise contamination rate: 0.058
+Average track cluster purity (excl. noise): 0.985
+Average noise points in kNN: 0.2
+
+Track size distribution:
+  Min: 2, Max: 43, Mean: 6.3
+  Size 2-4: 4418 tracks, completeness=0.877, purity=0.892, noise_contamination=0.099, cluster_purity=0.960
+  Size 5-9: 8190 tracks, completeness=0.980, purity=0.955, noise_contamination=0.042, cluster_purity=0.996
+  Size 10-19: 2178 tracks, completeness=0.995, purity=0.962, noise_contamination=0.035, cluster_purity=0.997
+  Size 20-∞: 51 tracks, completeness=0.998, purity=0.966, noise_contamination=0.033, cluster_purity=1.000
+
+Tracking efficiency analysis
+================================================================================
+Double-Majority: ≥50% purity + ≥50% connectivity
+LHC Efficiency: ≥75% purity
+Perfect Clustering: 100% purity (all k neighbors from same track)
+
+All tracks:
+  DM:      14608/14837 = 0.985 (98.5%)
+  LHC:     13307/14837 = 0.897 (89.7%)
+  Perfect: 10502/14837 = 0.708 (70.8%)
+
+All tracks 3+:
+  DM:      12858/12950 = 0.993 (99.3%)
+  LHC:     11702/12950 = 0.904 (90.4%)
+  Perfect: 8897/12950 = 0.687 (68.7%)
+
+All tracks 4+:
+  DM:      11656/11728 = 0.994 (99.4%)
+  LHC:     10852/11728 = 0.925 (92.5%)
+  Perfect: 8047/11728 = 0.686 (68.6%)
+
+All tracks 5+:
+  DM:      10391/10419 = 0.997 (99.7%)
+  LHC:     9834/10419 = 0.944 (94.4%)
+  Perfect: 7124/10419 = 0.684 (68.4%)
+
+High-pt (pt>0.9):
+  DM:      11851/12055 = 0.983 (98.3%)
+  LHC:     10717/12055 = 0.889 (88.9%)
+  Perfect: 8310/12055 = 0.689 (68.9%)
+
+High-pt 3+ (pt>0.9, size≥3):
+  DM:      10646/10729 = 0.992 (99.2%)
+  LHC:     9633/10729 = 0.898 (89.8%)
+  Perfect: 7226/10729 = 0.674 (67.4%)
+
+High-pt 4+ (pt>0.9, size≥4):
+  DM:      9778/9843 = 0.993 (99.3%)
+  LHC:     9064/9843 = 0.921 (92.1%)
+  Perfect: 6657/9843 = 0.676 (67.6%)
+
+High-pt 5+ (pt>0.9, size≥5):
+  DM:      8848/8875 = 0.997 (99.7%)
+  LHC:     8349/8875 = 0.941 (94.1%)
+  Perfect: 6015/8875 = 0.678 (67.8%)
+
+
+
+Results saved to: D:\ML\tracking_eval\eval\tracking\pu200_A40_0.94AP\track_analysis\N=10all_r=0.99_filtered_LS
+Text summary saved to: D:\ML\tracking_eval\eval\tracking\pu200_A40_0.94AP\track_analysis\N=10all_r=0.99_filtered_LS\analysis_summary.txt

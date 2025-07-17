@@ -1,0 +1,8 @@
+4: connectivity=0.8890, track_len=6.47, noise_pts=53028, signal_pts=8173, SNR=0.15 (1263 clusters)
+6: connectivity=0.8827, track_len=6.33, noise_pts=74035, signal_pts=8596, SNR=0.12 (1358 clusters)
+2: connectivity=0.8788, track_len=6.33, noise_pts=82402, signal_pts=8765, SNR=0.11 (1384 clusters)
+1: connectivity=0.8713, track_len=6.24, noise_pts=84789, signal_pts=8909, SNR=0.11 (1427 clusters)
+0: connectivity=0.8929, track_len=6.28, noise_pts=85852, signal_pts=9517, SNR=0.11 (1516 clusters)
+5: connectivity=0.8944, track_len=6.21, noise_pts=100944, signal_pts=9624, SNR=0.10 (1550 clusters)
+3: connectivity=0.8853, track_len=6.39, noise_pts=103989, signal_pts=9970, SNR=0.10 (1560 clusters)
+7: connectivity=0.8936, track_len=6.38, noise_pts=128499, signal_pts=10865, SNR=0.08 (1702 clusters)

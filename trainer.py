@@ -127,7 +127,7 @@ def run_lightning(config):
 
     # ----------------------------------------------------
 
-    TEST_RUN = True
+    TEST_RUN = False
     if TEST_RUN:
         # Run testing in a separate Trainer instance with logging disabled
         test_trainer = L.Trainer(

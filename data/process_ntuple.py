@@ -6,14 +6,19 @@ from tqdm import tqdm
 import torch
 from torch_geometric.data import Data
 import os
+import sys
 
-ROOT_DIR = "ntuple.root"
-OUTPUT_DIR = "raw/test/"
+ROOT_DIR = "data.root"
+OUTPUT_DIR = "raw/pu200/"
 START_EVENT = 0
-END_EVENT = 10
+END_EVENT = 1000
 CPU_CORES_FOR_MP = 8
 
 def process_event(i, tree, track_label, cols, start_idx):
+    output_file = os.path.join(args.out_dir, f"graph_{i+args.start_event}.pt")
+    if os.path.exists(output_file):
+        return None
+
     event_data = tree.arrays(cols, entry_start = start_idx + i, entry_stop = start_idx + i + 1)[0]
     
     trks = torch.tensor([xx[0] for xx in event_data[track_label]])  # first if multiple tracks in LS (uncommon)
@@ -35,9 +40,8 @@ def process_event(i, tree, track_label, cols, start_idx):
     data = torch.cat([ls_features,ls_coords,anchor_diff,end_diff[:,:-1],ls_diff[:,:-1],ls_anchor_layer,ls_end_layer],dim=1)
     
     graph = Data(x = data, particle_id = trks)
-    output_file = os.path.join(args.out_dir, f"graph_{i+args.start_event}.pt")
+
     torch.save(graph, output_file)
-    
     return graph
 
 if __name__ == "__main__":

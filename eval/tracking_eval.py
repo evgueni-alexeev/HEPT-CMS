@@ -14,28 +14,51 @@ import pandas as pd
 import torch.nn.functional as F
 from tqdm import tqdm
 import argparse
+import io
+from contextlib import redirect_stdout
 
 from filter_model import EventDataset, _load_model
 
 VISUALS = 1
 PILEUP_CKPT = "pu200_0.409p"
-TRACKING_CKPT = "pu200_0.991AP"
+TRACKING_CKPT = "pu200_A40_0.94AP"
 RECALL = 0.99
-NUM_EVENTS = 5
+NUM_EVENTS = 50
 SPLIT = "all"  # "test" or "all"
-USE_ONLY_TRUE_TRACKS = True
+USE_ONLY_TRUE_TRACKS = False
 
-def calculate_efficiency(embeddings, particle_ids, mask, dist_metric, pt_values, eta_values):
+class TextLogger:
+    """Context manager to capture print output to both console and file."""
+    def __init__(self, log_file):
+        self.log_file = log_file
+        self.terminal = sys.stdout
+        self.log = open(log_file, 'w', encoding='utf-8')
+        
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+        
+    def __enter__(self):
+        sys.stdout = self
+        return self
+        
+    def __exit__(self, type, value, traceback):
+        sys.stdout = self.terminal
+        self.log.close()
+
+def calculate_efficiencies(embeddings, particle_ids, mask, dist_metric, pt_values, eta_values):
     """
-    Calculate efficiency using double-majority (DM), LHC, and perfect clustering criteria.
+    Calculate efficiency using double-majority (DM), LHC and Perfect criteria.
     
-    DM definition in this case is:
-      For each track, check two conditions:
-        1. >50% of track's points have >50% of their K nearest neighbors belong to the correct track
-        2. Mutual connectivity: >50% of track's points are in each other's K nearest neighbors
+    For each track, check two conditions:
+    1. >50% of track's points have >50% of their K nearest neighbors belong to the correct track
+    2. Mutual connectivity: >50% of track's points are in each other's K nearest neighbors
 
     """
-    # Apply mask
     masked_embeddings = embeddings[mask]
     masked_particle_ids = particle_ids[mask]
     masked_pt_values = pt_values[mask]
@@ -46,90 +69,64 @@ def calculate_efficiency(embeddings, particle_ids, mask, dist_metric, pt_values,
         return {
             'dm_efficiency': {
                 'all_data': empty_result,
-                'high_pt': empty_result,
-                'high_pt_3plus': empty_result,
-                'high_pt_4plus': empty_result,
             },
             'lhc_efficiency': {
                 'all_data': empty_result,
-                'high_pt': empty_result,
-                'high_pt_3plus': empty_result,
-                'high_pt_4plus': empty_result,
             },
             'perfect_efficiency': {
                 'all_data': empty_result,
-                'high_pt': empty_result,
-                'high_pt_3plus': empty_result,
-                'high_pt_4plus': empty_result,
             }
         }
     
-    # Separate track points from noise
-    track_mask = (masked_particle_ids != -1)
+    track_mask = (masked_particle_ids >= 0)
     track_embeddings = masked_embeddings[track_mask]
     track_particle_ids = masked_particle_ids[track_mask]
     track_pt_values = masked_pt_values[track_mask]
     track_eta_values = masked_eta_values[track_mask]
     
-    # Get unique tracks (excluding background -1)
     unique_tracks = torch.unique(track_particle_ids)
-    
-    # Double-majority efficiency counters
+
     dm_counters = {
         'all_data': {'total': 0, 'matched': 0},
+        'all_data_3plus': {'total': 0, 'matched': 0},
+        'all_data_4plus': {'total': 0, 'matched': 0},
+        'all_data_5plus': {'total': 0, 'matched': 0},
         'high_pt': {'total': 0, 'matched': 0},  # pt > 0.9
         'high_pt_3plus': {'total': 0, 'matched': 0},  # pt > 0.9 + size >= 3
         'high_pt_4plus': {'total': 0, 'matched': 0},  # pt > 0.9 + size >= 4
+        'high_pt_5plus': {'total': 0, 'matched': 0},  # pt > 0.9 + size >= 5
     }
-    
-    # LHC efficiency counters
-    lhc_counters = {
-        'all_data': {'total': 0, 'matched': 0},
-        'high_pt': {'total': 0, 'matched': 0},
-        'high_pt_3plus': {'total': 0, 'matched': 0},
-        'high_pt_4plus': {'total': 0, 'matched': 0},
-    }
-    
-    # Perfect clustering efficiency counters
-    perfect_counters = {
-        'all_data': {'total': 0, 'matched': 0},
-        'high_pt': {'total': 0, 'matched': 0},
-        'high_pt_3plus': {'total': 0, 'matched': 0},
-        'high_pt_4plus': {'total': 0, 'matched': 0},
-    }
+    lhc_counters = {key: {'total': 0, 'matched': 0} for key in dm_counters.keys()}
+    perfect_counters = {key: {'total': 0, 'matched': 0} for key in dm_counters.keys()}
     
     for track_id in unique_tracks:
         track_mask_specific = (track_particle_ids == track_id)
         track_indices = track_mask_specific.nonzero().flatten()
         track_size = len(track_indices)
         
-        if track_size < 2:  # Skip single-point tracks
+        if track_size < 2:
             continue
             
         track_embs = track_embeddings[track_indices]
         track_pts = track_pt_values[track_indices]
         track_etas = track_eta_values[track_indices]
         
-        # Check track quality categories (using track averages)
         avg_pt = track_pts.mean().item()
         is_high_pt = (avg_pt > 0.9)
         is_high_pt_3plus = is_high_pt and (track_size >= 3)
         is_high_pt_4plus = is_high_pt and (track_size >= 4)
+        is_high_pt_5plus = is_high_pt and (track_size >= 5)
         
-        # Calculate distances within this track and to all other points
         if "l2" in dist_metric:
-            # Distance from track points to all track points (including itself)
             intra_track_dist = torch.cdist(track_embs, track_embeddings, p=2.0)
-            # Distance from track points to all masked points (for neighborhood analysis)
             all_points_dist = torch.cdist(track_embs, masked_embeddings, p=2.0)
         elif dist_metric == "cosine":
             intra_track_dist = 1 - F.cosine_similarity(track_embs.unsqueeze(1), track_embeddings.unsqueeze(0), dim=-1)
             all_points_dist = 1 - F.cosine_similarity(track_embs.unsqueeze(1), masked_embeddings.unsqueeze(0), dim=-1)
         
-        # Set K for analysis - exactly track_size - 1 (all other points in the track)
         k = track_size - 1
         
-        # Condition 1: For each point, check if >=50% of its K nearest neighbors belong to correct track
+        # DM 1/2: For each point, check if >=50% of its K nearest neighbors belong to correct track
         # LHC: For each point, check if >=75% of its K nearest neighbors belong to correct track  
         # Perfect: For each point, check if ALL K nearest neighbors belong to correct track
         points_with_good_purity = 0
@@ -137,12 +134,10 @@ def calculate_efficiency(embeddings, particle_ids, mask, dist_metric, pt_values,
         points_with_perfect_purity = 0
         
         for i in range(track_size):
-            # Find K nearest neighbors among all points
             distances = all_points_dist[i]
-            _, nearest_indices = torch.topk(distances, k + 1, largest=False)  # +1 to exclude self
-            nearest_indices = nearest_indices[1:]  # Remove self
+            _, nearest_indices = torch.topk(distances, k + 1, largest=False)
+            nearest_indices = nearest_indices[1:]
             
-            # Check how many belong to correct track
             neighbor_particle_ids = masked_particle_ids[nearest_indices]
             correct_neighbors = (neighbor_particle_ids == track_id).sum().item()
             
@@ -159,59 +154,52 @@ def calculate_efficiency(embeddings, particle_ids, mask, dist_metric, pt_values,
         lhc_condition_met = (points_with_lhc_purity / track_size) >= 0.75
         perfect_condition_met = (points_with_perfect_purity == track_size)  # ALL points must have perfect purity
         
-        # Condition 2: Mutual connectivity within track
+        # DM 2/2: Mutual connectivity within track
         # For each point, check if >50% of other track points are in its K nearest neighbors
         points_with_good_connectivity = 0
         
         for i in range(track_size):
-            # Find K nearest neighbors among all track points
             distances = intra_track_dist[i]
             _, nearest_indices = torch.topk(distances, min(k + 1, track_size), largest=False)
-            nearest_indices = nearest_indices[1:]  # Remove self
+            nearest_indices = nearest_indices[1:]
             
-            # Count how many other track points are in the neighborhood
-            # (All neighbors are from the same track by construction)
             neighbors_found = len(nearest_indices)
-            other_track_points = track_size - 1  # Exclude self
+            other_track_points = track_size - 1
             
             if other_track_points > 0 and (neighbors_found / other_track_points) >= 0.5:
                 points_with_good_connectivity += 1
         
         condition2_met = (points_with_good_connectivity / track_size) >= 0.5
         
-        # Track matches if both conditions are met
         dm_track_matched = condition1_met and condition2_met
-        # LHC efficiency: only requires >=75% neighbor purity condition
         lhc_track_matched = lhc_condition_met
-        # Perfect clustering: requires 100% neighbor purity for all points
         perfect_track_matched = perfect_condition_met
         
-        # Update counters for all categories
         categories = [
             ('all_data', True),
+            ('all_data_3plus', track_size >= 3),
+            ('all_data_4plus', track_size >= 4),
+            ('all_data_5plus', track_size >= 5),
             ('high_pt', is_high_pt),
             ('high_pt_3plus', is_high_pt_3plus),
             ('high_pt_4plus', is_high_pt_4plus),
+            ('high_pt_5plus', is_high_pt_5plus),
         ]
         
         for category, condition in categories:
             if condition:
-                # Double-majority counters
                 dm_counters[category]['total'] += 1
                 if dm_track_matched:
                     dm_counters[category]['matched'] += 1
                     
-                # LHC efficiency counters
                 lhc_counters[category]['total'] += 1
                 if lhc_track_matched:
                     lhc_counters[category]['matched'] += 1
                     
-                # Perfect clustering counters
                 perfect_counters[category]['total'] += 1
                 if perfect_track_matched:
                     perfect_counters[category]['matched'] += 1
     
-    # Calculate efficiencies for all categories
     def calculate_efficiency(counters):
         return {
             category: {
@@ -239,9 +227,8 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
     if len(masked_embeddings) == 0:
         return [], {}
     
-    # Separate track points from noise points
-    track_mask = (masked_particle_ids != -1)
-    noise_mask = (masked_particle_ids == -1)
+    track_mask = (masked_particle_ids >= 0)
+    noise_mask = (masked_particle_ids < 0)
     
     track_embeddings = masked_embeddings[track_mask]
     track_particle_ids = masked_particle_ids[track_mask]
@@ -250,7 +237,6 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
     noise_embeddings = masked_embeddings[noise_mask]
     noise_indices = noise_mask.nonzero().flatten()
     
-    # Get unique tracks (excluding background -1)
     unique_tracks = torch.unique(track_particle_ids)
     
     track_results = []
@@ -272,20 +258,18 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
         track_indices = track_mask_specific.nonzero().flatten()
         track_size = len(track_indices)
         
-        if track_size < 2:  # Skip single-point tracks
+        if track_size < 2:
             continue
             
         track_embs = track_embeddings[track_indices]
         track_pts = track_pt_values[track_indices]
         avg_pt = track_pts.mean().item()
         
-        # Calculate distances from each track point to ALL points (tracks + noise)
         if "l2" in dist_metric:
             dist_matrix = torch.cdist(track_embs, masked_embeddings, p=2.0)
         elif dist_metric == "cosine":
             dist_matrix = 1 - F.cosine_similarity(track_embs.unsqueeze(1), masked_embeddings.unsqueeze(0), dim=-1)
         
-        # For each point in this track, find its nearest neighbors and analyze noise contamination
         track_performance = {
             'event_idx': event_idx,
             'track_id': track_id.item(),
@@ -307,21 +291,17 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
         total_noise_contamination = 0.0
         
         for i, point_idx in enumerate(track_indices):
-            # Get k nearest neighbors - exactly track_size - 1 (all other points in the track)
             k = track_size - 1
             distances = dist_matrix[i]
-            _, nearest_indices = torch.topk(distances, k + 1, largest=False)  # +1 to exclude self
-            nearest_indices = nearest_indices[1:]  # Remove self
+            _, nearest_indices = torch.topk(distances, k + 1, largest=False)
+            nearest_indices = nearest_indices[1:]
             
-            # Get predicted track members (nearest neighbors)
             predicted_particle_ids = masked_particle_ids[nearest_indices]
             
-            # Analyze noise contamination in kNN
-            noise_in_knn = (predicted_particle_ids == -1).sum().item()
+            noise_in_knn = (predicted_particle_ids < 0).sum().item()
             track_points_in_knn = (predicted_particle_ids == track_id).sum().item()
-            other_tracks_in_knn = ((predicted_particle_ids != -1) & (predicted_particle_ids != track_id)).sum().item()
+            other_tracks_in_knn = ((predicted_particle_ids >= 0) & (predicted_particle_ids != track_id)).sum().item()
             
-            # Calculate metrics
             true_positives = track_points_in_knn
             false_positives = noise_in_knn + other_tracks_in_knn
             false_negatives = track_size - 1 - true_positives
@@ -329,13 +309,11 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
             precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0.0
             recall = true_positives / (track_size - 1) if (track_size - 1) > 0 else 1.0
             
-            # Noise contamination metrics
             noise_contamination = noise_in_knn / k if k > 0 else 0.0
             cluster_purity = true_positives / k if k > 0 else 0.0
             
             total_noise_contamination += noise_contamination
             
-            # Check if this point found most of its track
             if recall > 0.5:
                 correctly_found_points += 1
             
@@ -360,14 +338,12 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
             total_precision += precision
             total_recall += recall
         
-        # Calculate track-level metrics
         track_performance['track_completeness'] = correctly_found_points / track_size
         track_performance['avg_precision'] = total_precision / track_size
         track_performance['avg_recall'] = total_recall / track_size
         track_performance['noise_contamination_rate'] = total_noise_contamination / track_size
         track_performance['avg_noise_in_knn'] = sum(p['noise_in_knn'] for p in track_performance['points_analyzed']) / track_size
         
-        # Calculate overall track purity considering noise
         all_predictions = []
         for point_data in track_performance['points_analyzed']:
             all_predictions.extend(point_data['predicted_particle_ids'])
@@ -375,15 +351,13 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
         if all_predictions:
             correct_predictions = sum(1 for pid in all_predictions if pid == track_id.item())
             track_performance['track_purity'] = correct_predictions / len(all_predictions)
-            # Track cluster purity (excluding noise from denominator)
-            non_noise_predictions = sum(1 for pid in all_predictions if pid != -1)
+            non_noise_predictions = sum(1 for pid in all_predictions if pid >= 0)
             track_performance['track_cluster_purity'] = correct_predictions / non_noise_predictions if non_noise_predictions > 0 else 0.0
         
         track_results.append(track_performance)
         all_noise_contaminations.append(track_performance['noise_contamination_rate'])
         all_track_purities.append(track_performance['track_cluster_purity'])
         
-        # Add to noise analysis
         noise_analysis['noise_contamination_by_track'].append({
             'track_id': track_id.item(),
             'track_size': track_size,
@@ -392,12 +366,10 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
             'track_cluster_purity': track_performance['track_cluster_purity']
         })
     
-    # Global noise analysis
     if all_noise_contaminations:
         noise_analysis['avg_noise_contamination'] = np.mean(all_noise_contaminations)
         noise_analysis['track_cluster_purity'] = all_track_purities
     
-    # Analyze noise point behavior in embedding space
     if len(noise_embeddings) > 0 and len(track_embeddings) > 0:
         if "l2" in dist_metric:
             noise_to_track_dist = torch.cdist(noise_embeddings, track_embeddings, p=2.0)
@@ -413,8 +385,7 @@ def analyze_track_performance(embeddings, particle_ids, mask, dist_metric, pt_th
 
 def print_efficiency(dm_results, lhc_results, perfect_results):
     """Print double-majority, LHC, and perfect clustering efficiency results."""
-    print(f"\n{'='*80}")
-    print(f"TRACKING EFFICIENCY ANALYSIS")
+    print(f"\nTracking efficiency analysis")
     print(f"{'='*80}")
     print("Double-Majority: ≥50% purity + ≥50% connectivity")
     print("LHC Efficiency: ≥75% purity")
@@ -439,12 +410,15 @@ def print_efficiency(dm_results, lhc_results, perfect_results):
     lhc_agg = aggregate_results(lhc_results)
     perfect_agg = aggregate_results(perfect_results)
     
-    # Print results for all categories
     categories = [
         ('all_data', 'All tracks'),
+        ('all_data_3plus', 'All tracks 3+'),
+        ('all_data_4plus', 'All tracks 4+'),
+        ('all_data_5plus', 'All tracks 5+'),
         ('high_pt', 'High-pt (pt>0.9)'),
         ('high_pt_3plus', 'High-pt 3+ (pt>0.9, size≥3)'),
         ('high_pt_4plus', 'High-pt 4+ (pt>0.9, size≥4)'),
+        ('high_pt_5plus', 'High-pt 5+ (pt>0.9, size≥5)'),
     ]
     
     for category, label in categories:
@@ -466,8 +440,7 @@ def print_track_summary(track_results, pt_threshold):
         print(f"No tracks found for pt_threshold = {pt_threshold}")
         return
     
-    print(f"\n{'='*80}")
-    print(f"TRACK-BY-TRACK ANALYSIS (pt_threshold = {pt_threshold})")
+    print(f"\nTrack by track analysis (pt_threshold = {pt_threshold})")
     print(f"{'='*80}")
     
     total_tracks = len(track_results)
@@ -508,6 +481,7 @@ def print_track_summary(track_results, pt_threshold):
                   f"purity={bin_purity:.3f}" + (f", noise_contamination={bin_noise_contamination:.3f}, cluster_purity={bin_cluster_purity:.3f}" if not USE_ONLY_TRUE_TRACKS else ""))
 
 def save_track_results_to_csv(all_track_results, output_file):
+    """Save comprehensive track results including noise metrics to CSV file."""
     csv_data = []
     
     all_tracks = []
@@ -565,8 +539,6 @@ def save_track_results_to_csv(all_track_results, output_file):
     return df
 
 def generate_track_visualizations(output_dir, csv_file_path):
-    print('Generating track visualizations...')
-    
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -624,15 +596,62 @@ def main():
 
     filtered_dir = Path(__file__).parent / f"pileup/{args.pileup_ckpt}/filtered_data"
     filtered_file = filtered_dir / f"filtered_r{int(1000*args.recall_suffix)}_data-{args.num_events}.pt"
-    assert filtered_file.exists(), f"Filtered dataset not found: {filtered_file}"
+    # If filtered file missing, trigger its creation via filter_model.py
+    if not filtered_file.exists():
+        print(f"Filtered dataset not found: {filtered_file}\n→ Generating using eval/filter_model.py ...")
+
+        import subprocess, re
+
+        # Infer pileup density from checkpoint name (expects 'pu<density>_' prefix)
+        m = re.match(r"pu(\d+)_", args.pileup_ckpt)
+        pileup_density = m.group(1) if m else "200"
+
+        recall_float = args.recall_suffix / 1000 if args.recall_suffix > 1 else args.recall_suffix
+
+        # Ensure processed pileup dataset exists; create if absent
+        processed_pileup_path = Path(__file__).resolve().parents[1] / f"data/processed/pileup/pu{pileup_density}" / f"data-{args.num_events}.pt"
+        if not processed_pileup_path.exists():
+            print(f"Processed pileup dataset not found: {processed_pileup_path}\n→ Building via dataset.py ...")
+
+            dataset_script = Path(__file__).resolve().parents[1] / "dataset.py"
+            ds_cmd = [
+                sys.executable,
+                str(dataset_script),
+                "-d", "pileup",
+                "-t", str(args.num_events),
+                "-pu", pileup_density
+            ]
+            print("Running:", " ".join(ds_cmd))
+            subprocess.run(ds_cmd, check=True)
+            print("Processed pileup dataset created.")
+
+        filter_script = Path(__file__).parent / "filter_model.py"
+        cmd = [
+            sys.executable,
+            str(filter_script),
+            "-c", args.pileup_ckpt,
+            "-pu", pileup_density,
+            "-n", str(args.num_events),
+            "-r", str(recall_float),
+            "--no-tracking"  # only need filtered pileup
+        ]
+
+        print("Running:", " ".join(cmd))
+        subprocess.run(cmd, check=True)
+
+        print("Filtered dataset generation completed. Continuing with evaluation...")
+
+    assert filtered_file.exists(), f"Failed to generate filtered dataset: {filtered_file}"
 
     root_dir = Path(__file__).parent / f"tracking/{args.tracking_ckpt}"
     ckpt_dir = root_dir / "best.ckpt"
     yaml_dir = root_dir / "hparams.yaml"
 
-    output_dir = root_dir / "track_analysis" / f"N={args.num_events}_r={args.recall_suffix}_{'filtered_LS' if not USE_ONLY_TRUE_TRACKS else 'only_true_LS'}"
+    output_dir = root_dir / "track_analysis" / f"N={args.num_events}{args.split}_r={args.recall_suffix}_{'filtered_LS' if not USE_ONLY_TRUE_TRACKS else 'true_LS'}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    text_log_file = output_dir / "analysis_summary.txt"
+    
     data, slices, idx_split = torch.load(filtered_file, weights_only=False)
     selected_dataset = EventDataset(data, slices)
     selected_dataset.idx_split = idx_split
@@ -649,78 +668,70 @@ def main():
     model = _load_model(ckpt_path=ckpt_dir, hparams_path=yaml_dir, in_dim=in_dim, coords_dim=coords_dim, task="tracking")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Define pt thresholds and distance metric here
     pt_thres = [0]
     dist_metric = ['l2']
     
+
     all_metrics = {pt: {'accuracy': [], 'precision': [], 'recall': []} for pt in pt_thres}
     all_track_results = {pt: [] for pt in pt_thres}
-    
-    all_dm_efficiency = {
-        'all_data': [], 
-        'high_pt': [],        # pt>0.9 (using track averages)
-        'high_pt_3plus': [],  # pt>0.9 + track size >= 3
-        'high_pt_4plus': [],  # pt>0.9 + track size >= 4
-    }
 
-    all_lhc_efficiency = {
-        'all_data': [],
-        'high_pt': [],
-        'high_pt_3plus': [],
-        'high_pt_4plus': [],
-    }
+    eff_keys = ['all_data','all_data_3plus','all_data_4plus','all_data_5plus','high_pt','high_pt_3plus','high_pt_4plus','high_pt_5plus']
 
-    all_perfect_efficiency = {
-        'all_data': [],
-        'high_pt': [],
-        'high_pt_3plus': [],
-        'high_pt_4plus': [],
-    }
+    all_dm_efficiency = {k: [] for k in eff_keys}
+    all_lhc_efficiency = {k: [] for k in eff_keys}
+    all_perfect_efficiency = {k: [] for k in eff_keys}
 
-    print(f"Total dataset size: {len(dataset)}")
-    print(f"Using pt thresholds: {pt_thres}")
-    print(f"Using distance metric: {dist_metric}")
+    with TextLogger(text_log_file):
+        print(f"Dataset: {filtered_file}")
+        print(f"Total dataset size: {len(dataset)}")
+        print(f"Using pt thresholds: {pt_thres}")
+        print(f"Using distance metric: {dist_metric}")
+        print(f"Split: {args.split}")
+        print(f"Use only true tracks: {USE_ONLY_TRUE_TRACKS}")
+        print(f"{'='*80}\n")
 
-    def mask_func(cluster_ids, pts, pt_thres):
-        if USE_ONLY_TRUE_TRACKS:
-            return (cluster_ids != -1) & (pts > pt_thres)
-        else:
-            return (pts > pt_thres)
+        def mask_func(cluster_ids, pts, pt_thres):
+            if USE_ONLY_TRUE_TRACKS:
+                return (cluster_ids >= 0) & (pts > pt_thres)
+            else:
+                return (pts > pt_thres)
 
-    for idx, evt in tqdm(enumerate(dataset), desc=f"Processing {len(dataset)} events"):
-        with torch.no_grad():
-            data = Batch.from_data_list([evt]).to(device)
-            emb = model(data)
-            
-            dm_mask = mask_func(data.particle_id, data.pt, pt_thres=0.0)
-            dm_results = calculate_efficiency(emb, data.particle_id, dm_mask, dist_metric, data.pt, data.x[:, 2])
-            for category in all_dm_efficiency.keys():
-                all_dm_efficiency[category].append(dm_results['dm_efficiency'][category])
-            
-            for category in all_lhc_efficiency.keys():
-                all_lhc_efficiency[category].append(dm_results['lhc_efficiency'][category])
+        for idx, evt in tqdm(enumerate(dataset), desc=f"Processing {len(dataset)} events", file=sys.stderr):
+            with torch.no_grad():
+                data = Batch.from_data_list([evt]).to(device)
+                emb = model(data)
                 
-            for category in all_perfect_efficiency.keys():
-                all_perfect_efficiency[category].append(dm_results['perfect_efficiency'][category])
-            
-            for pt_threshold in pt_thres:
-                batch_mask = mask_func(data.particle_id, data.pt, pt_threshold)
-                track_results, noise_analysis = analyze_track_performance(emb, data.particle_id, batch_mask, dist_metric, pt_threshold, idx, data.pt)
-                all_track_results[pt_threshold].extend(track_results)
+                dm_mask = mask_func(data.particle_id, data.pt, pt_thres=0.0)
+                dm_results = calculate_efficiencies(emb, data.particle_id, dm_mask, dist_metric, data.pt, data.x[:, 2])
+                for category in all_dm_efficiency.keys():
+                    all_dm_efficiency[category].append(dm_results['dm_efficiency'][category])
+                
+                for category in all_lhc_efficiency.keys():
+                    all_lhc_efficiency[category].append(dm_results['lhc_efficiency'][category])
+                    
+                for category in all_perfect_efficiency.keys():
+                    all_perfect_efficiency[category].append(dm_results['perfect_efficiency'][category])
+                
+                for pt_threshold in pt_thres:
+                    batch_mask = mask_func(data.particle_id, data.pt, pt_threshold)
+                    track_results, noise_analysis = analyze_track_performance(emb, data.particle_id, batch_mask, dist_metric, pt_threshold, idx, data.pt)
+                    all_track_results[pt_threshold].extend(track_results)
 
-    for pt_threshold in pt_thres:
-        if all_track_results[pt_threshold]:          
-            print_track_summary(all_track_results[pt_threshold], pt_threshold)
+        for pt_threshold in pt_thres:
+            if all_track_results[pt_threshold]:          
+                print_track_summary(all_track_results[pt_threshold], pt_threshold)
 
-    print_efficiency(all_dm_efficiency, all_lhc_efficiency, all_perfect_efficiency)
+        print_efficiency(all_dm_efficiency, all_lhc_efficiency, all_perfect_efficiency)
+
+        print(f"\nResults saved to: {output_dir}")
+        print(f"Text summary saved to: {text_log_file}")
 
     output_csv = output_dir / "track_performance_results.csv"
     track_df = save_track_results_to_csv(all_track_results, output_csv)
 
     if VISUALS == 1:
-        generate_track_visualizations(output_dir, output_csv)
-
-    print(f"\nResults saved to: {output_dir}")
+        with TextLogger(text_log_file.with_name("visualization_output.txt")):
+            generate_track_visualizations(output_dir, output_csv)
 
     torch.cuda.empty_cache()
 
