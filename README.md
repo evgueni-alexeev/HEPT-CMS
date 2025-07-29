@@ -2,12 +2,14 @@
 Implementation of HEPT efficient transformer model utilizing LSH (https://arxiv.org/abs/2402.12535) for high pileup CMS data. Transformer/efficient attention and hashing code was adapted from Siqi Miao's repo: https://github.com/Graph-COM/HEPT, who is one of the authors on the paper.
 
 Currently set up to run tracking and pileup tasks using **LST line segment (LS)** features.
-- **Pileup** model does binary classification on LS using `LS_isFake` branch as labels
-- **Tracking** model outputs 24D learned embedding space where true LS from the same sim track (`LS_SimTrkIdx` branch) are clustered together, with no additional post-processing
+- **Pileup** model does binary classification on LS using `LS_isFake` branch as labels.
+- **Tracking** model outputs 24D learned embedding space where true LS from the same sim track (`LS_SimTrkIdx` branch) are clustered together, with no additional post-processing.
+
+See [slides](https://github.com/evgueni-alexeev/HEPT-CMS/blob/main/HEPT%20implementation%20for%20CMS.pdf) for some info.
 
 ### Dataset construction
 
-Raw event data is generated from pileup 50, 100 or 200 ntuple (not included in repo due to size) via `data/process_ntuple.py` and saved as `graph_#.pt` files. There are a few raw events included in the repo for illustrative purposes (not enough for proper training). To generate the combined dataset from those event files, run
+Raw event data is generated from pileup 50, 100 or 200 ntuple (not included in repo due to size, see below for uaf paths) via `data/process_ntuple.py` and saved as `graph_#.pt` files. There are a few raw events included in the repo for illustrative purposes (not enough for proper training). To generate the combined dataset from those event files, run
 ```
 python dataset.py -d <task> -pu <pileup density> ...
 ```
@@ -20,6 +22,23 @@ After pileup model is trained, it can be used to generate a filtered tracking da
 python dataset.py -d tracking -t ... -pu ... -f -ckpt <checkpoint_folder>
 ```
 This will save a filtered dataset to `data/processed/tracking/pu<..>` with auxiliary edges, to be used for final training.
+
+The ttbar ntuples are available here on the t2 uaf server:
+
+pu200 (7000 events)
+```
+/ceph/cms/store/user/aaarora/LSTrkIdxRelVal_PU200RelVal_NEVT-1__LSTNtuple.root
+```
+pu100 (2x1000 events)
+```
+/ceph/users/atuna/CMSSW_15_1_0_pre2/src/RecoTracker/LSTCore/standalone/LSTNtuple.ttbarPU100.0.root
+/ceph/users/atuna/CMSSW_15_1_0_pre2/src/RecoTracker/LSTCore/standalone/LSTNtuple.ttbarPU100.1.root
+```
+pu50 (2x1000 events)
+```
+/ceph/users/atuna/CMSSW_15_1_0_pre2/src/RecoTracker/LSTCore/standalone/LSTNtuple.ttbarPU050.0.root
+/ceph/users/atuna/CMSSW_15_1_0_pre2/src/RecoTracker/LSTCore/standalone/LSTNtuple.ttbarPU050.1.root
+```
 
 ### Training
 
@@ -49,3 +68,7 @@ There is some post-processing done after the training loop to generate the plots
 `eval/filter_model.py` can be used to apply a trained pileup model on a dataset to produce filtered versions at various recall thresholds, those will be saved in `eval/pileup/<saved_model>/filtered_data`. The filtered(or unfiltered) datasets can also be analyzed using a trained tracking model via `eval/tracking_eval.py`. This gives a detailed breakdown of efficiency and analysis by track length, $p_t$, etc when applied on a partially cleaned dataset. The same analysis can be run on just the sim-matched line segments in the dataset (which masks out `LS_isFake` points).
 
 There are currently 2 pre-trained models saved in `eval`, both trained on 2000 events from the pu200 ntuple, on a single A40 over ~200 epochs. The pileup model achieved a **40.9% precision** at 99% recall, and **96.5% AUPRC**. The tracking model built using the 99% recall threshold, with $r=0.15$ and $k \sim 30$ achieved a **94.1% mean AP** score and an estimated **94% LHC efficiency** @ $p_t \geq 0.9$ GeV. The efficiency was calculated using a separate sample of 10 events (not in the training/validation set), for clusters with 5 or more line segments.
+
+### Architecture
+
+![Pipeline](pipeline.jpg)
